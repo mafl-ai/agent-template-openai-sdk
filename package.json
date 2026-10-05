@@ -1,0 +1,35 @@
+{
+  "name": "agent-template-openai-sdk",
+  "version": "0.1.0",
+  "description": "Lightweight scheduled OpenAI agent starter for Raspberry Pi",
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "build": "tsc",
+    "check": "tsc --noEmit",
+    "start": "node dist/index.js",
+    "once": "node dist/index.js --once",
+    "test": "node --import tsx --test test/*.test.ts",
+    "dry-run": "node dist/index.js --once --dry-run",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "keywords": [],
+  "author": "",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "dotenv": "^18.0.4",
+    "node-cron": "^4.6.0",
+    "openai": "^6.49.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.3",
+    "prettier": "^3.9.9",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  }
+}
