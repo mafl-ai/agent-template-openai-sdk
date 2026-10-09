@@ -58,4 +58,23 @@ export const lineup: Lineup = {
 
 export const recorded = { ...lineup, lineup_id: "lineup-1", revision: 1 };
 
+export const scoring = {
+  version: "2026.1",
+  format: "ppr",
+  passing: {
+    yards_per_point: 25,
+    touchdown: 4,
+    interception: -2,
+    two_point_conversion: 2,
+  },
+  rushing: { yards_per_point: 10, touchdown: 6, two_point_conversion: 2 },
+  receiving: {
+    reception: 1,
+    yards_per_point: 10,
+    touchdown: 6,
+    two_point_conversion: 2,
+  },
+  fumble_lost: -2,
+};
+
 export const copy = <T>(value: T): T => structuredClone(value);
