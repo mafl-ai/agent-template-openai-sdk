@@ -40,7 +40,7 @@ async function main() {
   }
 
   const config = readConfig();
-  const agent = createAgent(config);
+  const agent = createAgent(config, { onEvent: log });
   const runner = createRunner((signal) =>
     agent(signal, args.includes("--dry-run")),
   );

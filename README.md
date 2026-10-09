@@ -189,8 +189,31 @@ the PM2 instance for the same task.
 ## MAFL workflow
 
 At every run, the agent rechecks [MAFL's skill](https://mafl.ai/skill.md) using ETag
-caching. This integration implements version 1.4 and stops on an unknown version
-until its code is reviewed. Downloaded text is never executed as instructions.
+caching. Well-formed numeric document versions are accepted without an allowlist.
+Downloaded text is stored for comparison and never passed to the analyst or executed
+as instructions. The CLI logs `mafl_skill_observed` on first use and
+`mafl_skill_changed` when the document hash changes, even without a version bump.
+These notices contain versions and SHA-256 hashes, not downloaded text. Existing
+cached state remains compatible; fetch failures do not silently use stale content.
+
+Compatibility checks validate the actual contest, pool, scoring, and lineup data
+before paid research. New submissions require a validated server dry-run response.
+Changed cap, slots, scoring/salary versions, or lock time during research stop the
+submission. Additional read-response fields are tolerated; generated payloads remain
+strict. Pending retries preserve the original body, skill version, and idempotency
+key, because MAFL records older skill labels without rejecting them.
+
+The baseline was reviewed against skill `1.8` and the public scoring schema on
+2026-10-09. Contest slots, eligibility, cap, and versions come from API data;
+scoring checks require PPR and the documented finite numeric passing, rushing,
+receiving, and fumble fields. Local validation enforces lineup reasoning, factor,
+confidence, and score constraints. The server checks revision limits and submission
+legality; exact read-back confirms writes. Global lock/no late swaps and frozen
+pool behavior also rely on the documented contract. Validation cannot detect every
+future semantic rule change that leaves response fields intact. After a change
+notice, manually compare the cached skill in `AGENT_STATE_DIR/state.json` with the
+official document and review any rule changes. An unfamiliar document version alone
+does not stop scheduled play.
 
 It fetches the open contest, frozen player pool, scoring rules, current lineup, and
 agent identity. It collects settled results from its last recorded contest when
@@ -217,7 +240,8 @@ existing `.env` values override them, and changing timezone changes their meanin
 The dry-run command performs paid model calls and API validation but never records
 a lineup. After inspecting a successful dry run, use `npm run once` or start PM2 for
 automatic submissions. A registered-model mismatch, incomplete/uncited research,
-invalid lineup, unknown scoring/skill version, or failed read-back stops the run.
+invalid lineup, malformed skill metadata, incompatible API data, scoring-version
+mismatch, or failed read-back stops the run.
 No automated repair loop repeatedly spends credits or consumes revision quota.
 
 ## Customize

@@ -13,15 +13,20 @@ import {
   type Lineup,
 } from "./lineup.js";
 import { acquireLock, loadState, saveState } from "./state.js";
+import {
+  assertSameRules,
+  isSkillVersion,
+  lineupBody,
+  observeSkill,
+  parseScoring,
+} from "./compatibility.js";
 
-function matchesRecorded(value: unknown, body: Lineup): boolean {
+function matchesBody(value: unknown, body: Lineup): boolean {
   if (!value || typeof value !== "object") return false;
 
   const recorded = object(value);
 
   return (
-    !!recorded.lineup_id &&
-    Number.isInteger(recorded.revision) &&
     recorded.thesis === body.thesis &&
     recorded.projected_score === body.projected_score &&
     recorded.confidence === body.confidence &&
@@ -29,10 +34,25 @@ function matchesRecorded(value: unknown, body: Lineup): boolean {
     Array.isArray(recorded.players) &&
     recorded.players.length === body.players.length &&
     body.players.every((p) =>
-      recorded.players.some((r: any) =>
-        Object.entries(p).every(([k, v]) => r[k] === v),
+      recorded.players.some(
+        (r: any) =>
+          r &&
+          typeof r === "object" &&
+          Object.entries(p).every(([k, v]) => r[k] === v),
       ),
     )
+  );
+}
+
+function matchesRecorded(value: unknown, body: Lineup): boolean {
+  if (!value || typeof value !== "object") return false;
+  const recorded = object(value);
+  return (
+    typeof recorded.lineup_id === "string" &&
+    !!recorded.lineup_id &&
+    Number.isInteger(recorded.revision) &&
+    recorded.revision > 0 &&
+    matchesBody(value, body)
   );
 }
 
@@ -41,6 +61,7 @@ export function createAgent(
   deps: {
     fetcher?: typeof fetch;
     analyst?: ReturnType<typeof createAnalyst>;
+    onEvent?: (event: string, fields: Record<string, unknown>) => void;
   } = {},
 ) {
   const analyst = deps.analyst ?? createAnalyst(config);
@@ -66,7 +87,28 @@ export function createAgent(
       const api = new MaflClient(key, config.timeoutMs, deps.fetcher);
       const state = await loadState(config.stateDir);
       const skill = await api.skill(signal, state.skill);
-      state.skill = { text: skill.text, etag: skill.etag };
+      let previous: ReturnType<typeof observeSkill> | undefined;
+      try {
+        if (typeof state.skill?.text === "string")
+          previous = observeSkill(state.skill.text);
+      } catch {
+        // Invalid legacy metadata cannot establish a previous observation.
+      }
+      if (!previous || previous.contentHash !== skill.contentHash)
+        deps.onEvent?.(
+          previous ? "mafl_skill_changed" : "mafl_skill_observed",
+          {
+            version: skill.version,
+            contentHash: skill.contentHash,
+            ...(previous
+              ? {
+                  previousVersion: previous.version,
+                  previousContentHash: previous.contentHash,
+                }
+              : {}),
+          },
+        );
+      state.skill = skill;
       await saveState(config.stateDir, state);
 
       // Confirm a possibly successful write even after the contest has locked.
@@ -135,14 +177,10 @@ export function createAgent(
       if (identity.model !== config.model)
         throw new AgentError("Registered MAFL model differs from OPENAI_MODEL");
 
-      const scoring = await api.request("/scoring", signal);
-
-      // Scoring version location is defined by the scoring endpoint; refuse mismatches.
-      if (
-        scoring.version !== contest.scoring_version &&
-        scoring.scoring_version !== contest.scoring_version
-      )
-        throw new AgentError("Scoring version mismatch");
+      const scoring = parseScoring(
+        await api.request("/scoring", signal),
+        contest,
+      );
 
       const current = await api.request(
         `/contests/${contest.id}/lineups/me`,
@@ -155,24 +193,10 @@ export function createAgent(
       const existing =
         current.lineup === null
           ? null
-          : validateLineup(
-              {
-                players: object(current.lineup).players.map((p: any) => ({
-                  slot: p.slot,
-                  player_id: p.player_id,
-                  rationale: p.rationale,
-                  confidence: p.confidence,
-                  primary_factor: p.primary_factor,
-                })),
-                thesis: current.lineup.thesis,
-                projected_score: current.lineup.projected_score,
-                confidence: current.lineup.confidence,
-                skill_version: current.lineup.skill_version ?? skill.version,
-              },
-              contest,
-              pool,
-              current.lineup.skill_version ?? skill.version,
-            );
+          : (() => {
+              const body = lineupBody(current.lineup, skill.version);
+              return validateLineup(body, contest, pool, body.skill_version);
+            })();
 
       let body: Lineup,
         idempotencyKey: string,
@@ -181,11 +205,13 @@ export function createAgent(
 
       if (state.pending?.contestId === contest.id && !dryRun) {
         // Reuse the exact bytes/ID after ambiguous network failure; never regenerate first.
+        if (!isSkillVersion(state.pending.body.skill_version))
+          throw new AgentError("Invalid pending lineup skill version");
         body = validateLineup(
           state.pending.body,
           contest,
           pool,
-          skill.version,
+          state.pending.body.skill_version,
           [key, config.apiKey],
         );
         idempotencyKey = state.pending.key;
@@ -247,6 +273,8 @@ export function createAgent(
       )
         return { status: "contest_locked", contestId: contest.id };
 
+      assertSameRules(contest, refreshed);
+
       // An existing pending payload may already have succeeded. Replay directly so
       // a now-exhausted revision quota cannot prevent idempotent recovery.
       if (dryRun || state.pending?.contestId !== contest.id) {
@@ -257,7 +285,26 @@ export function createAgent(
           idempotencyKey,
         );
 
-        if (preview.dry_run !== true || preview.contest_id !== contest.id)
+        if (
+          preview.dry_run !== true ||
+          preview.contest_id !== contest.id ||
+          !Number.isFinite(Date.parse(preview.lock_time)) ||
+          Date.parse(preview.lock_time) !== Date.parse(contest.lock_time) ||
+          !preview.lineup ||
+          preview.lineup.lineup_id !== null ||
+          preview.lineup.revision !== null ||
+          preview.lineup.submitted_at !== null ||
+          !matchesBody(preview.lineup, body) ||
+          preview.lineup.salary_cap !== contest.salary_cap ||
+          preview.lineup.salary_total !==
+            body.players.reduce(
+              (total, p) =>
+                total +
+                pool.players.find((player) => player.player_id === p.player_id)!
+                  .salary,
+              0,
+            )
+        )
           throw new AgentError("Unexpected dry-run response");
       }
 

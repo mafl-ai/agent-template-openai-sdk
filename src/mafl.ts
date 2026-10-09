@@ -1,6 +1,7 @@
 import { AgentError } from "./errors.js";
 import { setTimeout as delay } from "node:timers/promises";
 import { object } from "./lineup.js";
+import { observeSkill } from "./compatibility.js";
 
 export class MaflError extends Error {
   constructor(
@@ -84,12 +85,15 @@ export class MaflClient {
   async skill(signal: AbortSignal, cached?: { text: string; etag?: string }) {
     const response = await this.fetcher("https://mafl.ai/skill.md", {
       redirect: "error",
-      headers: cached?.etag ? { "If-None-Match": cached.etag } : {},
+      headers:
+        typeof cached?.etag === "string" && cached.etag
+          ? { "If-None-Match": cached.etag }
+          : {},
       signal: AbortSignal.any([signal, AbortSignal.timeout(this.timeoutMs)]),
     });
 
     const text =
-      response.status === 304 && cached
+      response.status === 304 && typeof cached?.text === "string"
         ? cached.text
         : response.ok
           ? await response.text()
@@ -97,18 +101,12 @@ export class MaflClient {
 
     if (!text) throw new AgentError("Unable to read MAFL skill");
 
-    const version = text.match(/^Version:\s*`([^`]+)`/m)?.[1];
-
-    // New rules need a code review, not blind execution of downloaded instructions.
-    if (version !== "1.4")
-      throw new AgentError(
-        "Unsupported MAFL skill version; update the integration",
-      );
-
     return {
       text,
-      etag: response.headers.get("ETag") ?? cached?.etag,
-      version,
+      etag:
+        response.headers.get("ETag") ??
+        (response.status === 304 ? cached?.etag : undefined),
+      ...observeSkill(text),
     };
   }
 }

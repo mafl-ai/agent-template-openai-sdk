@@ -66,10 +66,12 @@ const number = (v: unknown): v is number =>
 export function parseContest(value: unknown): Contest {
   const v = object(value);
 
+  if (!["open", "locked", "settled"].includes(v.status))
+    throw new AgentError("Unsupported contest status");
+
   if (
     !text(v.id) ||
     !/^\d{4}-W\d{2}$/.test(v.id) ||
-    !text(v.status) ||
     !Number.isFinite(Date.parse(v.lock_time)) ||
     !Number.isFinite(Date.parse(v.now)) ||
     !number(v.seconds_until_lock) ||
@@ -110,6 +112,7 @@ export function parsePool(value: unknown, contest: Contest): Pool {
         !["player_id", "name", "team", "position", "opponent", "kickoff"].every(
           (k) => text(p[k]),
         ) ||
+        !Number.isFinite(Date.parse(p.kickoff)) ||
         !Number.isSafeInteger(p.salary) ||
         p.salary < 0,
     ) ||

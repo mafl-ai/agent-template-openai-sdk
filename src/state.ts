@@ -5,7 +5,12 @@ import { randomUUID } from "node:crypto";
 import type { Lineup } from "./lineup.js";
 
 export type State = {
-  skill?: { text: string; etag?: string };
+  skill?: {
+    text: string;
+    etag?: string;
+    version?: string;
+    contentHash?: string;
+  };
   pending?: { contestId: string; key: string; body: Lineup };
   last?: { contestId: string; body: Lineup };
   results?: Record<string, unknown>;
