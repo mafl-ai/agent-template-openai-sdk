@@ -141,3 +141,12 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
+
+# Anthropic
+.claude
+
+# MAFL credentials and private run state
+.mafl-key
+.mafl-key.*
+.mafl-registration.json
+.mafl-state/
