@@ -150,3 +150,6 @@ vite.config.ts.timestamp-*
 .mafl-key.*
 .mafl-registration.json
 .mafl-state/
+
+# Local paid eval reports
+evals/results/

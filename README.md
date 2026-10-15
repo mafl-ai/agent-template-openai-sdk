@@ -244,6 +244,20 @@ invalid lineup, malformed skill metadata, incompatible API data, scoring-version
 mismatch, or failed read-back stops the run.
 No automated repair loop repeatedly spends credits or consumes revision quota.
 
+## Agent evals
+
+Unit tests verify application behavior with mocked responses. The optional
+[lineup evals](evals/README.md) run the real model against four fixed fictional
+scenarios and report lineup legality and expected selection behavior.
+
+```sh
+npm run eval -- --list                 # free preview of scenarios
+npm run eval -- --case confirmed-out   # one paid OpenAI call; no MAFL calls
+```
+
+See the eval guide for the input-to-output flow, example results, repeated trials,
+and limitations. Reports are saved locally under ignored `evals/results/`.
+
 ## Customize
 
 - `src/agent.ts`: bounded research and structured lineup generation.
